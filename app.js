@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import express from "express";
 import multer from "multer";
-import fs from "fs/promises";
+import cors from 'cors';
 
 dotenv.config();
 
@@ -11,6 +11,7 @@ const upload = multer();
 const ai = new GoogleGenAI({apiKey: process.env.GEMINI_API_KEY});
 const GEMINI_MODEL = "gemini-2.5-flash";
 
+app.use(cors());
 app.use(express.json());
 
 async function extractText(resp) {
@@ -50,7 +51,7 @@ app.post('/generate-from-image', upload.single('image'), async (req, res) => {
       model: GEMINI_MODEL,
       contents: [
         { 
-          text: prompt 
+          text: prompt + "\n tolong jawab dalam format markdown, termasuk heading, bold, dan bullet points."
         },
         { 
           inlineData: { 
@@ -71,12 +72,13 @@ app.post('/generate-from-document', upload.single('document'), async (req, res) 
   try {
     console.log("--- Generate from Document Start ----");
     const { prompt } = req.body;
+    const finalPrompt = prompt ||  "Ringkas dokumen berikut:";
     const docBase64 = req.file.buffer.toString('base64');
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: [
         { 
-          text: prompt || "Ringkas dokumen berikut:"
+          text: finalPrompt + "\n tolong jawab dalam format markdown, termasuk heading, bold, dan bullet points."
         },
         { 
           inlineData: { 
@@ -86,6 +88,28 @@ app.post('/generate-from-document', upload.single('document'), async (req, res) 
       ]
     });
 
+    res.json({ result: await extractText(response) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+});
+
+//4. API Chat
+app.post('/api/chat', async (req,res) => {
+  try {
+    console.log("--- Process API Chat ----");
+    const { messages } = req.body;
+    if (!Array.isArray(messages)) throw new Error("messages must be an array");
+    const contents = messages.map(msg => ({
+      role: msg.role,
+      parts: [{ text: msg.content + "\n tolong jawab dalam format markdown, termasuk heading, bold, dan bullet points." }]
+    }));
+    
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents
+    });
+    
     res.json({ result: await extractText(response) })
   } catch (err) {
     res.status(500).json({ error: err.message })
